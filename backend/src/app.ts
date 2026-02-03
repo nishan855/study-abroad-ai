@@ -11,7 +11,12 @@ const app = express()
 // Security middleware
 app.use(helmet())
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001', 'https://studyyatra.loca.lt'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://studyyatra.loca.lt',
+    'https://frontend-production-8f4f.up.railway.app'
+  ],
   credentials: true
 }))
 
