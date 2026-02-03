@@ -1,0 +1,520 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum StudyLevel {
+  BACHELORS
+  MASTERS
+  MBA
+  PHD
+  DIPLOMA
+  CERTIFICATE
+}
+
+enum FieldOfStudy {
+  IT
+  BUSINESS
+  ENGINEERING
+  HEALTHCARE
+  ARTS
+  SCIENCE
+  LAW
+  OTHER
+}
+
+enum Country {
+  CANADA
+  AUSTRALIA
+  UK
+  USA
+  GERMANY
+  JAPAN
+  NEW_ZEALAND
+  IRELAND
+}
+
+enum TestType {
+  IELTS
+  PTE
+  TOEFL
+  DUOLINGO
+  GMAT
+  GRE
+  JLPT
+  NONE
+}
+
+enum CareerGoal {
+  PR_PATHWAY
+  WORK_RETURN
+  DEGREE_ONLY
+  FLEXIBLE
+}
+
+enum PRPathwayStrength {
+  STRONG
+  GOOD
+  MODERATE
+  LIMITED
+}
+
+enum ConversationStage {
+  GREETING
+  STUDY_LEVEL
+  FIELD
+  EDUCATION
+  PERCENTAGE
+  WORK_EXPERIENCE
+  TESTS
+  TEST_SCORES
+  CAREER_GOAL
+  BUDGET
+  LOAN_WILLINGNESS
+  COUNTRIES
+  TIMELINE
+  COMPLETE
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// ============================================================================
+// CORE MODELS
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  phone         String?   @unique
+  name          String?
+  password      String?   // Hashed, null for OAuth users
+  isVerified    Boolean   @default(false)
+  isPremium     Boolean   @default(false)
+  premiumUntil  DateTime?
+
+  // Relations
+  studentProfile StudentProfile?
+  conversations  Conversation[]
+  savedUniversities SavedUniversity[]
+  applications   Application[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model StudentProfile {
+  id                String        @id @default(cuid())
+  userId            String        @unique
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Academic Background
+  studyLevel        StudyLevel?
+  fieldOfStudy      FieldOfStudy?
+  currentDegree     String?       // e.g., "BBA", "BSc CSIT"
+  university        String?       // e.g., "Tribhuvan University"
+  graduationYear    Int?
+  percentage        Float?        // 0-100
+  gpa               Float?        // 0-4.0
+
+  // Work Experience
+  workExperienceYears Int?
+  workExperienceField String?
+  currentDesignation  String?
+
+  // Test Scores
+  testScores        TestScore[]
+
+  // Goals & Preferences
+  careerGoal        CareerGoal?
+  preferredCountries Country[]
+  preferredCitySize  String?       // "large", "medium", "small", "any"
+  preferredClimate   String?
+  targetIntake      String?       // e.g., "2026-09"
+
+  // Budget
+  budgetNPR         Int?          // Total budget in NPR
+  willingToLoan     Boolean?
+  maxLoanNPR        Int?
+  needsScholarship  Boolean?
+
+  // Profile Completion
+  isComplete        Boolean       @default(false)
+  completedAt       DateTime?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model TestScore {
+  id              String        @id @default(cuid())
+  profileId       String
+  profile         StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  testType        TestType
+  overallScore    Float
+
+  // Component scores (for IELTS/PTE)
+  listeningScore  Float?
+  readingScore    Float?
+  writingScore    Float?
+  speakingScore   Float?
+
+  testDate        DateTime?
+  expiryDate      DateTime?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([profileId, testType])
+}
+
+// ============================================================================
+// UNIVERSITY DATA
+// ============================================================================
+
+model University {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  country         Country
+  city            String
+  state           String?
+  isRegional      Boolean   @default(false) // For Australia regional bonus
+
+  // Ranking & Reputation
+  qsRanking       Int?
+  timesRanking    Int?
+  acceptanceRate  Float?        // 0-100 (e.g., 75.5 means 75.5% acceptance rate)
+
+  // General Info
+  description     String?
+  logoUrl         String?
+  websiteUrl      String
+
+  // Relations
+  programs        Program[]
+
+  // Verification
+  lastVerified    DateTime  @default(now())
+  verifiedBy      String?   // Admin who verified
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([country])
+  @@index([name])
+}
+
+model Program {
+  id              String          @id @default(cuid())
+  universityId    String
+  university      University      @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  // Program Details
+  name            String          // e.g., "Master of Business Administration"
+  slug            String
+  level           StudyLevel
+  field           FieldOfStudy
+  specializations String[]        // e.g., ["Finance", "Marketing", "Technology"]
+  duration        String          // e.g., "16 months", "2 years"
+  durationMonths  Int             // Numeric for calculations
+
+  // Fees (stored in local currency)
+  tuitionFee      Int             // In local currency (CAD, AUD, GBP)
+  currency        String          // "CAD", "AUD", "GBP", "USD"
+  tuitionNPR      Int             // Pre-calculated NPR for easy display
+
+  // Requirements
+  requirements    ProgramRequirements?
+
+  // Scholarships
+  scholarships    Scholarship[]
+
+  // PR & Work Rights
+  prPathway       PRPathwayStrength
+  prDetails       String?
+  workRightsDuringStudy String?   // e.g., "20 hours/week"
+  postStudyWorkVisa String?       // e.g., "3-year PGWP"
+
+  // Intakes & Deadlines
+  intakes         Intake[]
+
+  // Living Costs
+  estimatedLivingCostYearly Int   // In local currency
+  livingCostNPR   Int             // Pre-calculated NPR
+
+  // Difficulty Indicators
+  competitiveness String          @default("MODERATE") // "HIGHLY_COMPETITIVE", "COMPETITIVE", "MODERATE", "LESS_COMPETITIVE"
+  averageGPAAdmitted Float?       // Average GPA of admitted students
+
+  // Match Quality Indicators (calculated during matching)
+  matchScore      Float?          // 0-100, calculated for each student
+  matchCategory   String?         // "DREAM", "REACH", "TARGET", "SAFETY"
+
+  // Official Sources
+  officialUrl     String
+  requirementsUrl String?
+  scholarshipUrl  String?
+
+  // Verification
+  lastVerified    DateTime        @default(now())
+  isActive        Boolean         @default(true)
+
+  // Relations for matching
+  savedBy         SavedUniversity[]
+  applications    Application[]
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([universityId, slug])
+  @@index([field])
+  @@index([level])
+  @@index([tuitionNPR])
+  @@index([prPathway])
+}
+
+model ProgramRequirements {
+  id              String    @id @default(cuid())
+  programId       String    @unique
+  program         Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  // Academic Requirements
+  minPercentage   Float?    // Minimum percentage required
+  minGPA          Float?    // Minimum GPA (4.0 scale)
+  requiredDegree  String?   // e.g., "Bachelor's in any field"
+
+  // English Requirements
+  ieltsMin        Float?
+  ieltsMinComponent Float?  // Minimum for each component
+  pteMin          Float?
+  pteMinComponent Float?
+  toeflMin        Float?
+  duolingoMin     Float?
+
+  // Standardized Tests
+  gmatRequired    Boolean   @default(false)
+  gmatMin         Int?
+  greRequired     Boolean   @default(false)
+  greMin          Int?
+  gmatWaiverPossible Boolean @default(false)
+  gmatWaiverCondition String? // e.g., "5+ years work experience"
+
+  // Work Experience
+  workExpRequired Int       @default(0) // Years required
+  workExpPreferred Int?     // Years preferred
+
+  // Documents
+  documentsRequired String[] // e.g., ["SOP", "2 LORs", "Resume", "Transcripts"]
+
+  // Special Requirements
+  interviewRequired Boolean @default(false)
+  portfolioRequired Boolean @default(false)
+  otherRequirements String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Scholarship {
+  id              String    @id @default(cuid())
+  programId       String
+  program         Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  name            String
+  type            String    // "Merit", "Need-based", "Country-specific", "Entrance"
+  amount          String    // e.g., "CAD 5,000 - 10,000", "25% tuition"
+  amountMin       Int?      // Numeric min for filtering
+  amountMax       Int?      // Numeric max
+  currency        String
+
+  // Eligibility
+  eligibility     String?
+  minPercentage   Float?
+  minGPA          Float?
+
+  // Application
+  autoConsidered  Boolean   @default(false) // Auto-considered on admission
+  separateApplication Boolean @default(false)
+  deadline        String?
+
+  // Source
+  officialUrl     String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Intake {
+  id              String    @id @default(cuid())
+  programId       String
+  program         Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  semester        String    // "Fall", "Winter", "Spring", "Summer"
+  year            Int
+  applicationDeadline DateTime?
+  applicationDeadlineText String? // e.g., "Rolling", "March 1"
+  classStartDate  DateTime?
+  isOpen          Boolean   @default(true)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([programId, semester, year])
+}
+
+// ============================================================================
+// CONVERSATION & CHAT
+// ============================================================================
+
+model Conversation {
+  id              String            @id @default(cuid())
+  userId          String?
+  user            User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Session tracking (for anonymous users)
+  sessionId       String            @unique @default(cuid())
+
+  // Current state
+  stage           ConversationStage @default(GREETING)
+  isComplete      Boolean           @default(false)
+
+  // Extracted profile (stored as JSON for flexibility)
+  extractedProfile Json?
+
+  // Messages
+  messages        Message[]
+
+  // Results
+  matchedProgramIds String[]        // Program IDs from matching
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([sessionId])
+  @@index([userId])
+}
+
+model Message {
+  id              String        @id @default(cuid())
+  conversationId  String
+  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role            MessageRole
+  content         String
+
+  // For assistant messages with options
+  options         String[]      // Quick reply options
+
+  // Metadata
+  metadata        Json?         // Any additional data (extracted info, etc.)
+
+  createdAt       DateTime      @default(now())
+
+  @@index([conversationId])
+}
+
+// ============================================================================
+// USER ACTIONS
+// ============================================================================
+
+model SavedUniversity {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  programId       String
+  program         Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  notes           String?
+  priority        Int?      // 1 = top choice, 2 = second, etc.
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, programId])
+}
+
+model Application {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  programId       String
+  program         Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  // Status tracking
+  status          String    @default("planning") // planning, documents, submitted, offer, accepted, rejected
+
+  // Dates
+  plannedSubmitDate DateTime?
+  submittedDate   DateTime?
+  decisionDate    DateTime?
+
+  // Documents checklist (stored as JSON)
+  documentsChecklist Json?
+
+  // Notes
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, programId])
+}
+
+// ============================================================================
+// SYSTEM DATA
+// ============================================================================
+
+model ExchangeRate {
+  id              String    @id @default(cuid())
+  fromCurrency    String
+  toCurrency      String    @default("NPR")
+  rate            Float
+
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([fromCurrency, toCurrency])
+}
+
+model CountryInfo {
+  id              String    @id @default(cuid())
+  country         Country   @unique
+
+  // General Info
+  fullName        String
+  flagEmoji       String
+
+  // Study Info
+  studentVisaType String    // e.g., "Study Permit", "Student Visa subclass 500"
+  workRightsDuringStudy String
+  postStudyWorkOptions String
+  prPathwayDescription String
+
+  // Costs
+  averageLivingCostMonthly Int // In local currency
+  currency        String
+
+  // Requirements
+  generalRequirements String?
+
+  // Useful Links
+  immigrationUrl  String
+  educationPortalUrl String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
